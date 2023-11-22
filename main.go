@@ -1,12 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/smtp"
-
-	"github.com/rs/cors"
+	"github.com/gin-gonic/gin"
+	"gopkg.in/gomail.v2"
 )
 
 var name string
@@ -16,67 +14,80 @@ var aca string
 var dca string
 var edt string
 
+type FormData struct {
+	Name  string `form:"name"`
+	Email string `form:"email"`
+	Phone string `form:"phone"`
+}
+
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/endpoint", sendDataHandler)
+	router := gin.Default()
+	router.Use(corsMiddleware())
+	router.POST("/api/endpoint", sendDataHandler)
+	router.GET("/api/endpoint2", getDataHandler)
+	router.Run(":8085")
 
-	// ตั้งค่า CORS
-	handler := cors.Default().Handler(mux)
+}
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 
-	http.ListenAndServe(":8081", handler)
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	}
 }
 
-func sendDataHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+func getDataHandler(c *gin.Context) {
+	c.JSON(200, gin.H{
+		"message": "pong",
+	})
+}
+
+func sendDataHandler(c *gin.Context) {
+	var formData FormData
+	if err := c.ShouldBind(&formData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid data"})
 		return
 	}
 
-	var data map[string]interface{}
-	err := json.NewDecoder(r.Body).Decode(&data)
-	if err != nil {
-		http.Error(w, "Invalid data", http.StatusBadRequest)
-		return
-	}
+	name := formData.Name
+	email := formData.Email
+	phone := formData.Phone
 
-	// แสดงข้อมูลที่รับมาใน Console
-	//fmt.Println("Received data:", data)
 
-	email = data["email"].(string)
-	name = data["name"].(string)
-	phone = data["phone"].(string)
-	aca = data["aca"].(string)
-	dca = data["dca"].(string)
-	edt = data["edt"].(string)
-
-	fmt.Println("Email:", email)
 	fmt.Println("Name:", name)
+	fmt.Println("Email:", email)
 	fmt.Println("Phone:", phone)
-	fmt.Println("Aca:", aca)
-	fmt.Println("Dca:", dca)
-	fmt.Println("Edt:", edt)
 
-	sendSuccessEmail()
 
-	// ส่งข้อความกลับไปยัง client
-	fmt.Fprintf(w, "Data received and processed")
+	sendSuccessEmail(name, email, phone)
 
+	c.JSON(http.StatusOK, gin.H{"message": "Data received and processed"})
 }
 
-func sendSuccessEmail() {
-	from := "poramin5202@gmail.com"
-	password := "cnusugspxifbtnlv"
-	to := "poramin5202@gmail.com"
+func sendSuccessEmail(name, email, phone string) {
+	from := "poramin@gmail.com"
+	password := "poramin" // แทนที่ด้วยรหัสแอปพาสเวิร์ดจริงของคุณ
+	to := "poramin@gmail.com"
 
-	msg := "Subject: Success\n\nData received and processed successfully."
+	msg := fmt.Sprintf("Subject: Get free estimate\n\nName: %s\nPhone: %s\nEmail: %s", name, phone, email)
 
-	err := smtp.SendMail(
-		"smtp.gmail.com:587",
-		smtp.PlainAuth("", from, password, "smtp.gmail.com"),
-		from, []string{to}, []byte(msg),
-	)
+	m := gomail.NewMessage()
+	m.SetHeader("From", from)
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", "Get free estimate")
+	m.SetBody("text/plain", msg)
 
-	if err != nil {
+	d := gomail.NewDialer("smtp.gmail.com", 587, from, password)
+
+	if err := d.DialAndSend(m); err != nil {
 		fmt.Println("Error sending email:", err)
 	}
 }
